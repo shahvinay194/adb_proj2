@@ -13,8 +13,32 @@ from spanbert import SpanBERT
 nlp = spacy.load("en_core_web_lg")
 
 # Load pre-trained SpanBERT model
-spanbert = SpanBERT("SpanBERT/pretrained_spanbert")
+spanbert = SpanBERT("./pretrained_spanbert")
 
+relations = {
+    1: 'Schools_Attended',
+    2: 'Work_For',
+    3: 'Live_In',
+    4: 'Top_Member_Employees'
+}
+relations_internal = {
+    1: "per:schools_attended",
+    2: "per:employee_of",
+    3: "per:cities_of_residence",
+    4: "org:top_members/employees"
+}
+relations_list = {
+    1: ['PERSON', 'ORGANIZATION'],
+    2: ['PERSON', 'ORGANIZATION'],
+    3: ['PERSON', 'LOCATION', 'CITY', 'STATE_OR_PROVINCE', 'COUNTRY'],
+    4: ['PERSON', 'ORGANIZATION']
+}
+named_entity_types = {
+    'Schools_Attended': {'Subject': ['PERSON'], 'Object': ['ORGANIZATION']},
+    'Work_For': {'Subject': ['PERSON'], 'Object': ['ORGANIZATION']},
+    'Live_In': {'Subject': ['PERSON'], 'Object': ['LOCATION', 'CITY', 'STATE_OR_PROVINCE', 'COUNTRY']},
+    'Top_Member_Employees': {'Subject': ['ORGANIZATION'], 'Object': ['PERSON']}
+}
 
 class ISE:
 
@@ -24,31 +48,7 @@ class ISE:
         self.relation = 0
         self.threshold = 0
         self.query = ''
-        self.k = 0
-        self.relations = {
-            1: 'Schools_Attended',
-            2: 'Work_For',
-            3: 'Live_In',
-            4: 'Top_Member_Employees'
-        }
-        self.relations_internal = {
-            1: "per:schools_attended",
-            2: "per:employee_of",
-            3: "per:cities_of_residence",
-            4: "org:top_members/employees"
-        }
-        self.relations_list = {
-            1: ['PERSON', 'ORGANIZATION'],
-            2: ['PERSON', 'ORGANIZATION'],
-            3: ['PERSON', 'LOCATION', 'CITY', 'STATE_OR_PROVINCE', 'COUNTRY'],
-            4: ['PERSON', 'ORGANIZATION']
-        }
-        self.named_entity_types = {
-            'Schools_Attended': {'Subject': ['PERSON'], 'Object': ['ORGANIZATION']},
-            'Work_For': {'Subject': ['PERSON'], 'Object': ['ORGANIZATION']},
-            'Live_In': {'Subject': ['PERSON'], 'Object': ['LOCATION', 'CITY', 'STATE_OR_PROVINCE', 'COUNTRY']},
-            'Top_Member_Employees': {'Subject': ['ORGANIZATION'], 'Object': ['PERSON']}
-        }
+
         self.tuples = []
         self.visited_urls = set()
         self.urls = set()
@@ -85,53 +85,55 @@ class ISE:
             ))
 
             i += 1
-            html = requests.get(url, timeout=30).content
-            htmlParse = BeautifulSoup(html, 'html.parser')
+            try:
+                html = requests.get(url, timeout=30).content
+                htmlParse = BeautifulSoup(html, 'html.parser')
 
-            text = htmlParse.find_all(text=True)
-            # for data in htmlParse.find_all("p"):
-            #     text += data.get_text()
+                text = htmlParse.find_all(text=True)
+                # for data in htmlParse.find_all("p"):
+                #     text += data.get_text()
 
-            output = ''
-            blacklist = [
-                '[document]',
-                'noscript',
-                'header',
-                'html',
-                'meta',
-                'head',
-                'input',
-                'script',
-                'link',
-                'style'
-            ]
+                output = ''
+                blacklist = [
+                    '[document]',
+                    'noscript',
+                    'header',
+                    'html',
+                    'meta',
+                    'head',
+                    'input',
+                    'script',
+                    'link',
+                    'style'
+                ]
 
-            for t in text:
-                if t.parent.name not in blacklist:
-                    output += '{} '.format(t)
+                for t in text:
+                    if t.parent.name not in blacklist:
+                        output += '{} '.format(t)
 
-            print('Fetching text from url ...')
-            if len(output) > 20000:
-                print('Trimming webpage content from {} to 20000 characters'.format(len(output)))
-                output = output[0:20000]
+                print('Fetching text from url ...')
+                if len(output) > 20000:
+                    print('Trimming webpage content from {} to 20000 characters'.format(len(output)))
+                    output = output[0:20000]
 
-            print('Webpage length (num characters): {}'.format(len(output)))
-            print('Annotating the webpage using spacy...')
+                print('Webpage length (num characters): {}'.format(len(output)))
+                print('Annotating the webpage using spacy...')
 
-            output.strip()
-            # relation_list = self.relations_list[self.relation]
-            # relation_name = self.relations[self.relation]
-            self.example_helper(output)
-
+                output.strip()
+                # relation_list = self.relations_list[self.relation]
+                # relation_name = self.relations[self.relation]
+                self.example_helper(output)
+            except:
+                print('Timeout reached, trying next URL')
 
     def example_helper(self, raw_text):
         # raw_text = "Zuckerberg attended Harvard University, where he launched the Facebook social networking service from his dormitory room on February 4, 2004, with college roommates Eduardo Saverin, Andrew McCollum, Dustin Moskovitz, and Chris Hughes. Bill Gates stepped down as chairman of Microsoft in February 2014 and assumed a new post as technology adviser to support the newly appointed CEO Satya Nadella. "
 
         # # TODO: filter entities of interest based on target relation
         # entities_of_interest = ["ORGANIZATION", "PERSON", "LOCATION", "CITY", "STATE_OR_PROVINCE", "COUNTRY"]
-        entities_of_interest = self.relations_list[self.relation]
-        relation_name = self.relations[self.relation]
-        internal_name = self.relations_internal[self.relation]
+        entities_of_interest = relations_list[self.relation]
+        relation_name = relations[self.relation]
+        internal_name = relations_internal[self.relation]
 
         #
         # # Load spacy model
@@ -160,8 +162,8 @@ class ISE:
             candidate_pairs = []
             sentence_entity_pairs = create_entity_pairs(sentence, entities_of_interest)
 
-            req_subject_list = self.named_entity_types[relation_name]['Subject']
-            req_object_list = self.named_entity_types[relation_name]['Object']
+            req_subject_list = named_entity_types[relation_name]['Subject']
+            req_object_list = named_entity_types[relation_name]['Object']
 
             for ep in sentence_entity_pairs:
                 # TODO: keep subject-object pairs of the right type for the target relation (e.g., Person:Organization for the "Work_For" relation)
@@ -195,14 +197,14 @@ class ISE:
 
                     if pred[1] > self.threshold:
                         value = ex["subj"][0] + ' ' + ex["obj"][0]
-                        if not self.tuples_dict.__contains__(value)\
+                        if not self.tuples_dict.__contains__(value) \
                                 or (self.tuples_dict.__contains__(value) and pred[1] > self.tuples_dict[value]):
                             self.tuples.append({'Subject': ex["subj"][0]
-                                                           , 'Object': ex["obj"][0]
-                                                           , 'Relation': pred[0]
-                                                           , 'Confidence': pred[1]
-                                                           , 'Value': ex["subj"][0] + ' ' + ex["obj"][0]
-                                                           , 'Used': False})
+                                                   , 'Object': ex["obj"][0]
+                                                   , 'Relation': pred[0]
+                                                   , 'Confidence': pred[1]
+                                                   , 'Value': ex["subj"][0] + ' ' + ex["obj"][0]
+                                                   , 'Used': False})
 
                             self.tuples_dict[value] = pred[1]
                             print('Adding to set of extracted relations')
@@ -212,9 +214,6 @@ class ISE:
                         print('Confidence is lower than threshold confidence. Ignoring this.')
 
                     print('==================')
-
-
-
 
     def sortTuples(self):
         def comp(elem):
@@ -244,13 +243,13 @@ class ISE:
 
     def printOp(self):
         print('================== ALL RELATIONS for {} ( {} ) ================='.format(
-            self.relations_internal[self.relation],
+            relations_internal[self.relation],
             len(self.tuples)
         ))
         for row in self.tuples:
             print("Confidence: {}\t| Subject: {}| \tObject: {}".format(row['Confidence'],
-                                                                         row['Subject'],
-                                                                         row['Object']))
+                                                                       row['Subject'],
+                                                                       row['Object']))
 
 
 if __name__ == '__main__':
@@ -266,12 +265,12 @@ if __name__ == '__main__':
     ise.tuples_dict[ise.query] = 1.00
     itr = 0
     print('Parameters:')
-    print('Client key\t= '+ise.apikey)
-    print('Engine key\t= '+ise.engineId)
-    print('Relation\t= '+ise.relations_internal[ise.relation])
-    print('Threshold\t= '+str(ise.threshold))
-    print('Query\t= '+ise.query)
-    print('# of Tuples\t= '+str(ise.k))
+    print('Client key\t= ' + ise.apikey)
+    print('Engine key\t= ' + ise.engineId)
+    print('Relation\t= ' + relations_internal[ise.relation])
+    print('Threshold\t= ' + str(ise.threshold))
+    print('Query\t= ' + ise.query)
+    print('# of Tuples\t= ' + str(k))
     print('=========== Iteration: {} - Query: {} ==========='.format(itr, ise.query))
     itr += 1
     while len(ise.tuples) < k:
