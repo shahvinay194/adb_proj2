@@ -5,15 +5,13 @@ import spacy
 from bs4 import BeautifulSoup
 from googleapiclient.discovery import build
 
-# from example_relations import example_helper
-# from SpanBERT.spacy_help_functions_2 import extract_relations
-from spacy_help_functions import get_entities, create_entity_pairs
+from spacy_help_functions import create_entity_pairs
 from spanbert import SpanBERT
 
 nlp = spacy.load("en_core_web_lg")
 
 # Load pre-trained SpanBERT model
-spanbert = SpanBERT("./pretrained_spanbert")
+spanbert = SpanBERT("SpanBERT/pretrained_spanbert")
 
 relations = {
     1: 'Schools_Attended',
@@ -55,9 +53,6 @@ class ISE:
         self.tuples_dict = {}
 
     def googleSearch(self):
-        # Build a service object for interacting with the API. Visit
-        # the Google APIs Console <http://code.google.com/apis/console>
-        # to get an API key for your own application.
         service = build("customsearch", "v1",
                         developerKey=self.apikey)
 
@@ -70,9 +65,6 @@ class ISE:
             if item['link'] in self.visited_urls:
                 continue
             self.urls.add(item['link'])
-
-    # def extractEntities(self, doc):
-    #     return extract_relations(doc, spanbert, entities_of_interest)
 
     def extractText(self):
         i = 1
@@ -90,8 +82,6 @@ class ISE:
                 htmlParse = BeautifulSoup(html, 'html.parser')
 
                 text = htmlParse.find_all(text=True)
-                # for data in htmlParse.find_all("p"):
-                #     text += data.get_text()
 
                 output = ''
                 blacklist = [
@@ -120,27 +110,15 @@ class ISE:
                 print('Annotating the webpage using spacy...')
 
                 output.strip()
-                # relation_list = self.relations_list[self.relation]
-                # relation_name = self.relations[self.relation]
-                self.example_helper(output)
+                self.extract_tuples(output)
             except:
                 print('Timeout reached, trying next URL')
 
-    def example_helper(self, raw_text):
-        # raw_text = "Zuckerberg attended Harvard University, where he launched the Facebook social networking service from his dormitory room on February 4, 2004, with college roommates Eduardo Saverin, Andrew McCollum, Dustin Moskovitz, and Chris Hughes. Bill Gates stepped down as chairman of Microsoft in February 2014 and assumed a new post as technology adviser to support the newly appointed CEO Satya Nadella. "
+    def extract_tuples(self, raw_text):
 
-        # # TODO: filter entities of interest based on target relation
-        # entities_of_interest = ["ORGANIZATION", "PERSON", "LOCATION", "CITY", "STATE_OR_PROVINCE", "COUNTRY"]
         entities_of_interest = relations_list[self.relation]
         relation_name = relations[self.relation]
         internal_name = relations_internal[self.relation]
-
-        #
-        # # Load spacy model
-        # nlp = spacy.load("en_core_web_lg")
-        #
-        # # Load pre-trained SpanBERT model
-        # spanbert = SpanBERT("./pretrained_spanbert")
 
         # Apply spacy model to raw text (to split to sentences, tokenize, extract entities etc.)
         doc = nlp(raw_text)
@@ -153,12 +131,6 @@ class ISE:
             ctr += 1
             if ctr % 5 == 0:
                 print("Processed {} / {} sentences".format(ctr, sentences_len))
-            # print("\n\nProcessing sentence: {}".format(sentence))
-            # print("Tokenized sentence: {}".format([token.text for token in sentence]))
-            ents = get_entities(sentence, entities_of_interest)
-            # print("spaCy extracted entities: {}".format(ents))
-
-            # create entity pairs
             candidate_pairs = []
             sentence_entity_pairs = create_entity_pairs(sentence, entities_of_interest)
 
@@ -166,18 +138,12 @@ class ISE:
             req_object_list = named_entity_types[relation_name]['Object']
 
             for ep in sentence_entity_pairs:
-                # TODO: keep subject-object pairs of the right type for the target relation (e.g., Person:Organization for the "Work_For" relation)
                 candidate_pairs.append({"tokens": ep[0], "subj": ep[1], "obj": ep[2]})  # e1=Subject, e2=Object
                 candidate_pairs.append({"tokens": ep[0], "subj": ep[2], "obj": ep[1]})  # e1=Object, e2=Subject
             # Classify Relations for all Candidate Entity Pairs using SpanBERT
             candidate_pairs = [p for p in candidate_pairs if
                                (p["subj"][1] in req_subject_list and
-                                p["obj"][1] in req_object_list)]  # ignore subject entities with date/location type
-            # print("Candidate entity pairs:")
-            # for p in candidate_pairs:
-            #     print("Subject: {}\tObject: {}".format(p["subj"][0:2], p["obj"][0:2]))
-            # print("Applying SpanBERT for each of the {} candidate pairs. This should take some time...".format(
-            #     len(candidate_pairs)))
+                                p["obj"][1] in req_object_list)]
 
             if len(candidate_pairs) == 0:
                 continue
@@ -197,14 +163,19 @@ class ISE:
 
                     if pred[1] > self.threshold:
                         value = ex["subj"][0] + ' ' + ex["obj"][0]
-                        if not self.tuples_dict.__contains__(value) \
-                                or (self.tuples_dict.__contains__(value) and pred[1] > self.tuples_dict[value]):
+                        if not self.tuples_dict.__contains__(value):
                             self.tuples.append({'Subject': ex["subj"][0]
                                                    , 'Object': ex["obj"][0]
                                                    , 'Relation': pred[0]
                                                    , 'Confidence': pred[1]
-                                                   , 'Value': ex["subj"][0] + ' ' + ex["obj"][0]
+                                                   , 'Value': value
                                                    , 'Used': False})
+                            self.tuples_dict[value] = pred[1]
+                        elif self.tuples_dict.__contains__(value) and pred[1] > self.tuples_dict[value]:
+                            for tuple in self.tuples:
+                                if tuple['Value'] == value:
+                                    tuple['Confidence'] = pred[1]
+                                    break
 
                             self.tuples_dict[value] = pred[1]
                             print('Adding to set of extracted relations')
@@ -220,15 +191,6 @@ class ISE:
             return -elem['Confidence']
 
         self.tuples = sorted(self.tuples, key=comp)
-        # local_set = ()
-        # for row in local:
-        #     if row['Value'] in local_set:
-        #         local.remove(row)
-        #     else:
-        #         local_set.add(row['Value'])
-        #
-        # print(local)
-        # self.tuples = local
 
     def findNext(self):
         op = None
@@ -261,7 +223,6 @@ if __name__ == '__main__':
     ise.query = sys.argv[5]
     ise.query = ise.query.replace('"', '')  # remove quotes if present
     k = int(sys.argv[6])
-    # ise.tuples.append({'Value': ise.query, 'Used': True, 'Confidence': 1.0,})
     ise.tuples_dict[ise.query] = 1.00
     itr = 0
     print('Parameters:')
@@ -280,7 +241,7 @@ if __name__ == '__main__':
         ise.printOp()
         local_query = ise.findNext()
         if local_query is None:
-            print('No next')
+            print('ISE has stalled before retrieving k high-confidence tuples')
             break
         if len(ise.tuples) >= k:
             print('Total # of iterations = ' + str(itr))
