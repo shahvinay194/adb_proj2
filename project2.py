@@ -11,7 +11,7 @@ from spanbert import SpanBERT
 nlp = spacy.load("en_core_web_lg")
 
 # Load pre-trained SpanBERT model
-spanbert = SpanBERT("SpanBERT/pretrained_spanbert")
+spanbert = SpanBERT("./pretrained_spanbert")
 
 relations = {
     1: 'Schools_Attended',
