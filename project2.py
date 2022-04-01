@@ -5,13 +5,14 @@ import spacy
 from bs4 import BeautifulSoup
 from googleapiclient.discovery import build
 
+
 from spacy_help_functions import create_entity_pairs
 from spanbert import SpanBERT
 
 nlp = spacy.load("en_core_web_lg")
 
 # Load pre-trained SpanBERT model
-spanbert = SpanBERT("./pretrained_spanbert")
+spanbert = SpanBERT("SpanBERT/pretrained_spanbert")
 
 relations = {
     1: 'Schools_Attended',
@@ -52,6 +53,7 @@ class ISE:
         self.urls = set()
         self.tuples_dict = {}
 
+    #this is the same google search function used in project 1
     def googleSearch(self):
         service = build("customsearch", "v1",
                         developerKey=self.apikey)
@@ -66,6 +68,7 @@ class ISE:
                 continue
             self.urls.add(item['link'])
 
+    #this function extracts text from url using beautifulsoup
     def extractText(self):
         i = 1
         for url in self.urls:
@@ -114,8 +117,10 @@ class ISE:
             except:
                 print('Timeout reached, trying next URL')
 
+    #this function uses spacy and spanbert to extract final relations
     def extract_tuples(self, raw_text):
 
+        # get entities of interest based on the relation given as input
         entities_of_interest = relations_list[self.relation]
         relation_name = relations[self.relation]
         internal_name = relations_internal[self.relation]
@@ -124,7 +129,8 @@ class ISE:
         doc = nlp(raw_text)
         sentences_len = len([s for s in doc.sents])
         print(
-            'Extracted {} sentences. Processing each sentence one by one to check for presence of right pair of named entity types; if so, will run the second pipeline ...'.format(
+            'Extracted {} sentences. Processing each sentence one by one to check for presence of right pair of named '
+            'entity types; if so, will run the second pipeline ...'.format(
                 sentences_len))
         ctr = 0
         for sentence in doc.sents:
@@ -134,6 +140,7 @@ class ISE:
             candidate_pairs = []
             sentence_entity_pairs = create_entity_pairs(sentence, entities_of_interest)
 
+            # based on the input relation, get the subject and the object values list that are required
             req_subject_list = named_entity_types[relation_name]['Subject']
             req_object_list = named_entity_types[relation_name]['Object']
 
@@ -145,12 +152,11 @@ class ISE:
                                (p["subj"][1] in req_subject_list and
                                 p["obj"][1] in req_object_list)]
 
+            # In case there are no candidate pairs, then stop the process
             if len(candidate_pairs) == 0:
                 continue
 
             relation_preds = spanbert.predict(candidate_pairs)  # get predictions: list of (relation, confidence) pairs
-
-            # Print Extracted Relations
 
             for ex, pred in list(zip(candidate_pairs, relation_preds)):
 
@@ -161,8 +167,10 @@ class ISE:
                     print("Output Confidence: {} ; Subject: {} ; Object: {} ;".format(pred[1], ex["subj"][0],
                                                                                       ex["obj"][0]))
 
+                    # check if the confidence of the extracted tuple is greater than the threshold
                     if pred[1] > self.threshold:
                         value = ex["subj"][0] + ' ' + ex["obj"][0]
+                        # check whether the tuple is already present, if not then directly add the new entry
                         if not self.tuples_dict.__contains__(value):
                             self.tuples.append({'Subject': ex["subj"][0]
                                                    , 'Object': ex["obj"][0]
@@ -171,6 +179,8 @@ class ISE:
                                                    , 'Value': value
                                                    , 'Used': False})
                             self.tuples_dict[value] = pred[1]
+                        #     If the tuple is already present then check whether it has a better confidence.
+                        #     If yes, then replace the old tuple with the new one
                         elif self.tuples_dict.__contains__(value) and pred[1] > self.tuples_dict[value]:
                             for tuple in self.tuples:
                                 if tuple['Value'] == value:
@@ -186,12 +196,14 @@ class ISE:
 
                     print('==================')
 
+    # This function sorts the list of tuples in decreasing order of the confidence.
     def sortTuples(self):
         def comp(elem):
             return -elem['Confidence']
 
         self.tuples = sorted(self.tuples, key=comp)
 
+    # this function finds the next tuple to be used as a query for the next iteration
     def findNext(self):
         op = None
         for row in self.tuples:
@@ -203,6 +215,7 @@ class ISE:
 
         return op
 
+    #this function is used to print tuples
     def printOp(self):
         print('================== ALL RELATIONS for {} ( {} ) ================='.format(
             relations_internal[self.relation],
